@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.16.12
+
+- add file/folder delete retry to avoid the exists() → delete() race
+
 ## 3.16.11
 
 - discover the name of the exe without put wrong exe in AppxManifest.xml [#312](https://github.com/YehudaKremer/msix/pull/312)
