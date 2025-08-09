@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.16.11
+
+- discover the name of the exe without put wrong exe in AppxManifest.xml [#312](https://github.com/YehudaKremer/msix/pull/312)
+- Update `flutter_lints` version
+
 ## 3.16.10
 
 - Update `get_it` version [#306]
