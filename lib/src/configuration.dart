@@ -544,37 +544,35 @@ class Configuration {
       [];
 
   Future<String> _getExecutableFileName() async {
-    _logger.progress('Searching for executable file name...');
+    _logger.trace('Searching for executable file name...');
     //Try to obtain executable name from CMake
     String? executableName = await _getExecutableFromCMake();
     if (executableName != null) {
-      _logger.progress('executable name found from CMake: $executableName');
+      _logger.trace('executable name found from CMake: $executableName');
       return executableName;
     }
-    _logger
-        .progress('executable name not found from CMake, trying pubspec.yaml');
+    _logger.trace('executable name not found from CMake, trying pubspec.yaml');
 
     //Try to obtain executable name from pubspec.yaml (app name)
     executableName = await _getExecutableFromPubspec();
     if (executableName != null) {
-      _logger.progress('executable name found from pubspec: $executableName');
+      _logger.trace('executable name found from pubspec: $executableName');
       return executableName;
     }
-    _logger.progress(
+    _logger.trace(
         'executable name not found from pubspec, trying fallback method');
     // Fallback to searching the build files folder
-    _logger.progress('using fallback method to find executable');
+    _logger.trace('using fallback method to find executable');
     // Use the new helper method to find the executable, excluding unwanted exe names
     executableName = await _findExecutableFileName(
         exclude: ['PSFLauncher64.exe', 'crashpad_handler.exe']);
-    _logger.progress(
-        'executable name found from fallback method: $executableName');
     if (executableName == null) {
       _logger.stderr(
           'No executable file found in $buildFilesFolder, first run "flutter build windows" then try again');
       exit(-1);
     } else {
-      _logger.progress('executable name: $executableName');
+      _logger
+          .trace('executable name found from fallback method: $executableName');
       return executableName;
     }
   }
