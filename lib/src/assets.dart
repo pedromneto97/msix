@@ -260,13 +260,117 @@ class Assets {
       await Directory(_config.defaultsIconsFolderPath)
           .copyDirectory(Directory(_msixIconsFolderPath));
 
-  /// Copy the VC libs files (msvcp140.dll, vcruntime140.dll, vcruntime140_1.dll)
+  /// The Visual C++ runtime (CRT) DLLs that may be deployed next to the app.
+  /// Matches the contents of a `Microsoft.VC<nnn>.CRT` redistributable folder.
+  /// The same list drives both copying the runtime in ([copyVCLibsFiles]) and
+  /// cleaning it out ([cleanTemporaryFiles]), so the two cannot drift apart.
+  static const List<String> _vcRuntimeDllNames = [
+    'concrt140.dll',
+    'msvcp140.dll',
+    'msvcp140_1.dll',
+    'msvcp140_2.dll',
+    'msvcp140_atomic_wait.dll',
+    'msvcp140_codecvt_ids.dll',
+    'vccorlib140.dll',
+    'vcruntime140.dll',
+    'vcruntime140_1.dll',
+    'vcruntime140_threads.dll',
+  ];
+
+  /// Copies VC++ CRT DLLs next to the app.
+  /// Uses a version-matched CRT from the newest VS install when available,
+  /// otherwise falls back to bundled DLLs. Only [_vcRuntimeDllNames] are copied.
   Future<void> copyVCLibsFiles() async {
     _logger.trace('copying VC libraries');
 
-    await Directory(
-            p.join(_config.msixAssetsPath, 'VCLibs', _config.architecture))
-        .copyDirectory(Directory(_config.buildFilesFolder));
+    final String? redistCRTPath = await _findVCRedistCRTDir();
+    final String sourcePath = redistCRTPath ??
+        p.join(_config.msixAssetsPath, 'VCLibs', _config.architecture);
+
+    _logger.trace(redistCRTPath != null
+        ? 'using version-matched VC++ runtime from VS redistributable: $sourcePath'
+        : 'VS redistributable not found, using bundled VC libraries (subset only)');
+
+    for (final String dllName in _vcRuntimeDllNames) {
+      final File dll = File(p.join(sourcePath, dllName));
+      if (await dll.exists()) {
+        await dll.copy(p.join(_config.buildFilesFolder, dllName));
+      }
+    }
+  }
+
+  /// Finds the newest VS `Microsoft.VC<nnn>.CRT` folder for this architecture.
+  /// Returns `null` when unavailable, so callers can fall back to bundled DLLs.
+  Future<String?> _findVCRedistCRTDir() async {
+    if (!Platform.isWindows) return null;
+
+    final String architecture = _config.architecture ?? 'x64';
+    final String programFilesX86 =
+        Platform.environment['ProgramFiles(x86)'] ?? r'C:\Program Files (x86)';
+    final String vsWherePath = p.join(
+        programFilesX86, 'Microsoft Visual Studio', 'Installer', 'vswhere.exe');
+    if (!await File(vsWherePath).exists()) return null;
+
+    final String requiredComponent = architecture == 'arm64'
+        ? 'Microsoft.VisualStudio.Component.VC.Tools.ARM64'
+        : 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64';
+
+    final ProcessResult result = await Process.run(vsWherePath, [
+      '-latest',
+      '-prerelease',
+      '-products',
+      '*',
+      '-requires',
+      requiredComponent,
+      '-property',
+      'installationPath',
+    ]);
+    if (result.exitCode != 0) return null;
+
+    final String installPath = (result.stdout as String).trim();
+    if (installPath.isEmpty) return null;
+
+    final Directory redistRoot =
+        Directory(p.join(installPath, 'VC', 'Redist', 'MSVC'));
+    if (!await redistRoot.exists()) return null;
+
+    // Highest redistributable version first, then <arch>/Microsoft.VC<nnn>.CRT.
+    final List<Directory> versionDirs = (await redistRoot.list().toList())
+        .whereType<Directory>()
+        .toList()
+      ..sort(
+          (a, b) => _compareVersions(p.basename(b.path), p.basename(a.path)));
+
+    for (final Directory versionDir in versionDirs) {
+      final Directory archDir =
+          Directory(p.join(versionDir.path, architecture));
+      if (!await archDir.exists()) continue;
+
+      // A version+arch folder normally holds a single Microsoft.VC<nnn>.CRT;
+      // sort descending so the choice is deterministic if there are several.
+      final List<Directory> crtDirs = (await archDir.list().toList())
+          .whereType<Directory>()
+          .where((dir) => p.basename(dir.path).endsWith('.CRT'))
+          .toList()
+        ..sort((a, b) => p.basename(b.path).compareTo(p.basename(a.path)));
+
+      if (crtDirs.isNotEmpty) return crtDirs.first.path;
+    }
+
+    return null;
+  }
+
+  /// Compare dotted numeric versions such as `14.44.35112`.
+  /// Returns a positive number when [a] is newer than [b], negative when older.
+  static int _compareVersions(String a, String b) {
+    final List<int> pa = a.split('.').map((s) => int.tryParse(s) ?? 0).toList();
+    final List<int> pb = b.split('.').map((s) => int.tryParse(s) ?? 0).toList();
+    for (var i = 0; i < pa.length || i < pb.length; i++) {
+      final int x = i < pa.length ? pa[i] : 0;
+      final int y = i < pb.length ? pb[i] : 0;
+      if (x != y) return x.compareTo(y);
+    }
+    return 0;
   }
 
   Future<void> copyContextMenuDll(String dllPath) async {
@@ -290,9 +394,7 @@ class Assets {
         'resources.scale-150.pri',
         'resources.scale-200.pri',
         'resources.scale-400.pri',
-        'msvcp140.dll',
-        'vcruntime140_1.dll',
-        'vcruntime140.dll',
+        ..._vcRuntimeDllNames,
         ..._config.contextMenuConfiguration?.comSurrogateServers
                 .map((server) => basename(server.dllPath))
                 .toList() ??

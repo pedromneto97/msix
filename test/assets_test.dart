@@ -88,11 +88,17 @@ void main() {
       ..architecture = 'x64';
     await Assets().copyVCLibsFiles();
     await Future.delayed(const Duration(milliseconds: 100));
+    // Source files are left in place.
     expect(await File(p.join(vclibsFolderPath, 'msvcp140.dll')).exists(), true);
     expect(await File(p.join(vclibsFolderPath, 'vcruntime140_1.dll')).exists(),
         true);
     expect(await File(p.join(vclibsFolderPath, 'vcruntime140.dll')).exists(),
         true);
+    // The CRT DLLs are copied next to the app (into the build folder), whether
+    // sourced from the VS redistributable or the bundled fallback.
+    expect(await File(p.join(tempFolderPath, 'msvcp140.dll')).exists(), true);
+    expect(
+        await File(p.join(tempFolderPath, 'vcruntime140.dll')).exists(), true);
   });
 
   test('copy context menu dll', () async {
